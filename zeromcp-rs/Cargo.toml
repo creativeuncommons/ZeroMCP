@@ -1,0 +1,16 @@
+[package]
+name = "zeromcp-rs"
+version = "1.0.0-rc1"
+edition = "2021"
+description = "Ultra-lean, zero-bloat Model Context Protocol (MCP) server in Rust"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+tokio = { version = "1.38", default-features = false, features = ["rt", "io-util", "io-std", "macros"] }
+
+[[bin]]
+name = "zeromcp"
+path = "src/main.rs"

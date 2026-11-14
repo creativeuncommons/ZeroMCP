@@ -1,0 +1,216 @@
+name: Release & Cross-Compilation Matrix
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-rust-binaries:
+    name: Build Rust Native Binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Linux x86_64 (musl static)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            binary_name: zeromcp-linux-x86_64
+            use_cross: true
+
+          # Linux aarch64 (musl static)
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            binary_name: zeromcp-linux-arm64
+            use_cross: true
+
+          # Windows x64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary_name: zeromcp-windows-x64.exe
+            use_cross: false
+
+          # WebAssembly / WASI Universal Binary
+          - os: ubuntu-latest
+            target: wasm32-wasip1
+            binary_name: zeromcp.wasm
+            use_cross: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross (for musl cross-compilation)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build Native Binary
+        working-directory: zeromcp-rs
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --release --target ${{ matrix.target }}
+          else
+            cargo build --release --target ${{ matrix.target }}
+          fi
+
+      - name: Stage & Rename Binary (Unix & WASM)
+        if: matrix.os != 'windows-latest'
+        run: |
+          mkdir -p dist
+          SRC="zeromcp-rs/target/${{ matrix.target }}/release/zeromcp.wasm"
+          if [ ! -f "$SRC" ]; then
+            SRC="zeromcp-rs/target/${{ matrix.target }}/release/zeromcp"
+          fi
+          cp "$SRC" "dist/${{ matrix.binary_name }}"
+          chmod +x "dist/${{ matrix.binary_name }}" 2>/dev/null || true
+
+      - name: Stage & Rename Binary (Windows)
+        if: matrix.os == 'windows-latest'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "zeromcp-rs/target/${{ matrix.target }}/release/zeromcp.exe" "dist/${{ matrix.binary_name }}"
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.binary_name }}
+          path: dist/${{ matrix.binary_name }}
+
+  build-macos-binaries:
+    name: Build macOS Universal & Thin Binaries (arm64 & x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Install Zig & cargo-zigbuild
+        run: |
+          pip install cargo-zigbuild ziglang
+
+      - name: Build Apple Silicon Binary (aarch64)
+        working-directory: zeromcp-rs
+        run: cargo zigbuild --release --target aarch64-apple-darwin
+
+      - name: Build Intel Mac Binary (x86_64)
+        working-directory: zeromcp-rs
+        run: cargo zigbuild --release --target x86_64-apple-darwin
+
+      - name: Stage & Lipo Universal Binary
+        run: |
+          mkdir -p dist
+          cp zeromcp-rs/target/aarch64-apple-darwin/release/zeromcp dist/zeromcp-macos-arm64
+          cp zeromcp-rs/target/x86_64-apple-darwin/release/zeromcp dist/zeromcp-macos-x86_64
+          LIPO_BIN=$(command -v llvm-lipo || ls /usr/bin/llvm-lipo* 2>/dev/null | head -n 1 || command -v lipo || echo "")
+          if [ -n "$LIPO_BIN" ]; then
+            $LIPO_BIN -create -output dist/zeromcp-macos-universal dist/zeromcp-macos-arm64 dist/zeromcp-macos-x86_64
+          else
+            cp dist/zeromcp-macos-arm64 dist/zeromcp-macos-universal
+          fi
+          chmod +x dist/zeromcp-macos-*
+
+      - name: Upload Apple Silicon Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeromcp-macos-arm64
+          path: dist/zeromcp-macos-arm64
+
+      - name: Upload Intel Mac Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeromcp-macos-x86_64
+          path: dist/zeromcp-macos-x86_64
+
+      - name: Upload Universal Mac Binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: zeromcp-macos-universal
+          path: dist/zeromcp-macos-universal
+
+  package-release:
+    name: Package Assets & Publish GitHub Release
+    needs: [build-rust-binaries, build-macos-binaries]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all built binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: release_artifacts
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install Wasmtime (for WebAssembly WASI Conformance Gate)
+        run: |
+          curl https://wasmtime.dev/install.sh -sSf | bash
+          echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
+
+      - name: Stage Linux binary and WASM module for Conformance Gate
+        run: |
+          mkdir -p zeromcp-rs/target/release
+          find release_artifacts -name "zeromcp-linux-x86_64" -exec cp {} zeromcp-rs/target/release/zeromcp \;
+          chmod +x zeromcp-rs/target/release/zeromcp || true
+
+          mkdir -p zeromcp-rs/target/wasm32-wasip1/release
+          find release_artifacts -name "zeromcp.wasm" -exec cp {} zeromcp-rs/target/wasm32-wasip1/release/zeromcp.wasm \;
+          find release_artifacts -name "zeromcp.wasm" -exec cp {} dist/zeromcp.wasm \; 2>/dev/null || true
+
+      - name: Execute Automated Conformance Gate
+        run: |
+          python3 tests/test_stdio_limiter.py
+          python3 tests/conformance_test_runner.py --ci
+
+      - name: Organize Distribution Bundle
+        run: |
+          mkdir -p dist/packages
+          
+          # Copy standalone scripts
+          cp zeromcp-py/zeromcp.py dist/packages/zeromcp.py
+          cp zeromcp-ts/zeromcp.ts dist/packages/zeromcp.ts
+          cp scripts/node_wasi_runner.mjs dist/packages/node_wasi_runner.mjs
+          cp scripts/zeromcp_stdio_limiter.py dist/packages/zeromcp_stdio_limiter.py
+          chmod +x dist/packages/zeromcp.py dist/packages/zeromcp.ts dist/packages/zeromcp_stdio_limiter.py
+          
+          # Flatten binary artifacts
+          find release_artifacts -type f -exec cp {} dist/packages/ \;
+          
+          # Generate SHA-256 Checksums
+          cd dist/packages
+          sha256sum * > SHA256SUMS.txt
+          cd ../..
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          files: |
+            dist/packages/*
+          generate_release_notes: true
+          draft: false
+          prerelease: ${{ contains(github.ref, '-rc') || contains(github.ref, '-beta') || contains(github.ref, '-alpha') }}

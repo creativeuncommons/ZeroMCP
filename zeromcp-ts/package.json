@@ -1,0 +1,12 @@
+{
+  "name": "zeromcp-ts",
+  "version": "1.0.0-rc1",
+  "description": "ZeroMCP TypeScript Reference Implementation (Zero Runtime Dependencies)",
+  "type": "module",
+  "main": "zeromcp.ts",
+  "scripts": {
+    "start": "bun run zeromcp.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}
