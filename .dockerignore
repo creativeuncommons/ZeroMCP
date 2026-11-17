@@ -1,0 +1,7 @@
+.git
+.github
+target
+dist
+tests
+scratch
+*.log
