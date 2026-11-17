@@ -168,7 +168,8 @@ jobs:
 
       - name: Install Wasmtime (for WebAssembly WASI Conformance Gate)
         run: |
-          curl https://wasmtime.dev/install.sh -sSf | bash
+          mkdir -p "$HOME/.wasmtime/bin"
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v29.0.1/wasmtime-v29.0.1-x86_64-linux.tar.xz | tar -xJ --strip-components=1 -C "$HOME/.wasmtime/bin" || true
           echo "$HOME/.wasmtime/bin" >> $GITHUB_PATH
 
       - name: Stage Linux binary and WASM module for Conformance Gate

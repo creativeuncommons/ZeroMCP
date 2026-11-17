@@ -499,12 +499,18 @@ if __name__ == "__main__":
 
     if os.path.exists(wasm_bin):
         wasmtime_bin = shutil.which("wasmtime")
+        runner_mjs = os.path.join(PROJECT_ROOT, "scripts", "node_wasi_runner.mjs")
+        node_bin = shutil.which("node")
         if wasmtime_bin:
             print("\n🔍 Target 4: WebAssembly WASI Binary (wasmtime)")
             wasm_ok = run_conformance_for_command([wasmtime_bin, wasm_bin], "WebAssembly WASI (wasmtime)")
             results.append(("WebAssembly (wasmtime)", wasm_ok))
+        elif node_bin and os.path.exists(runner_mjs):
+            print("\n🔍 Target 4: WebAssembly WASI Binary (node_wasi_runner.mjs)")
+            wasm_ok = run_conformance_for_command([node_bin, runner_mjs, wasm_bin], "WebAssembly WASI (node)")
+            results.append(("WebAssembly (node)", wasm_ok))
         else:
-            print("ℹ️ WebAssembly binary found, but wasmtime runtime not detected on PATH.")
+            print("ℹ️ WebAssembly binary found, but wasmtime / node runtime not detected on PATH.")
 
     print("\n==================================================")
     print("📋 SUMMARY OF CONFORMANCE RUNS:")
