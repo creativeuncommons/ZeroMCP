@@ -3,6 +3,7 @@
 [![Protocol](https://img.shields.io/badge/MCP_Spec-2024--11--05-blue.svg)](https://spec.modelcontextprotocol.io/)
 [![Dependencies](https://img.shields.io/badge/Dependencies-Zero-brightgreen.svg)]()
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![CI Build](https://github.com/creativeuncommons/ZeroMCP/actions/workflows/release.yml/badge.svg)](https://github.com/creativeuncommons/ZeroMCP/actions)
 
 > **Ultra-lean, zero-third-party-dependency, production-grade Model Context Protocol (MCP) server implementations directly on raw JSON-RPC 2.0 over standard I/O (`stdio`).**
 
